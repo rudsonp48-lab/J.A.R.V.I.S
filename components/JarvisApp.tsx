@@ -2,18 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, Volume2, VolumeX, Terminal, Shield, Cpu, Activity, Copy, FileText, X, Check, Monitor, MonitorOff, Database, Upload, Send, Github, ExternalLink, Plus, RefreshCw, Home, Lightbulb, Thermometer, Lock, Unlock, Link, Smartphone } from 'lucide-react';
-import { GoogleGenAI, Modality, Type } from "@google/genai";
-
-// Types for the Live API
-interface LiveServerMessage {
-  serverContent?: {
-    modelTurn?: {
-      parts: { inlineData: { data: string; mimeType: string } }[];
-    };
-    interrupted?: boolean;
-  };
-}
+import Image from 'next/image';
+import { Mic, MicOff, Volume2, VolumeX, Terminal, Shield, Cpu, Activity, Copy, FileText, X, Check, Monitor, MonitorOff, Database, Upload, Send, Github, ExternalLink, Plus, RefreshCw, Home, Lightbulb, Thermometer, Lock, Unlock, Link, Smartphone, Image as ImageIcon, Play, Music, Film } from 'lucide-react';
+import { GoogleGenAI, Modality, Type, LiveServerMessage } from "@google/genai";
+import JarvisFace from './JarvisFace';
 
 export default function JarvisApp() {
   const [isListening, setIsListening] = useState(false);
@@ -43,6 +35,12 @@ export default function JarvisApp() {
   const [isHomePanelOpen, setIsHomePanelOpen] = useState(false);
   const [isLocalUplinkOpen, setIsLocalUplinkOpen] = useState(false);
   const [localUplinkStatus, setLocalUplinkStatus] = useState('DISCONNECTED');
+  const [isMediaPlayerOpen, setIsMediaPlayerOpen] = useState(false);
+  const [mediaQuery, setMediaQuery] = useState('');
+  const [mediaType, setMediaType] = useState<'music' | 'video'>('music');
+  const [generatedCreatives, setGeneratedCreatives] = useState<{ id: string; prompt: string; url: string; timestamp: string }[]>([]);
+  const [isCreativeGalleryOpen, setIsCreativeGalleryOpen] = useState(false);
+  const [isGeneratingCreative, setIsGeneratingCreative] = useState(false);
   
   const isListeningRef = useRef(false);
   const isMutedRef = useRef(false);
@@ -263,7 +261,14 @@ export default function JarvisApp() {
       addLog('Initiating Gemini Live Session...');
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY! });
+      const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+      if (!apiKey) {
+        addLog('Neural link failure: API Key missing. Please configure NEXT_PUBLIC_GEMINI_API_KEY.');
+        setStatus('ERROR');
+        return;
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       
       const session = await ai.live.connect({
         model: "gemini-2.5-flash-native-audio-preview-09-2025",
@@ -313,18 +318,6 @@ export default function JarvisApp() {
                   }
                 },
                 {
-                  name: "send_message",
-                  description: "Sends a simulated message to a contact.",
-                  parameters: {
-                    type: Type.OBJECT,
-                    properties: {
-                      recipient: { type: Type.STRING, description: "The name of the recipient." },
-                      content: { type: Type.STRING, description: "The content of the message." }
-                    },
-                    required: ["recipient", "content"]
-                  }
-                },
-                {
                   name: "add_to_notepad",
                   description: "Saves a specific piece of information, code, or command to the user's notepad.",
                   parameters: {
@@ -351,6 +344,54 @@ export default function JarvisApp() {
                       }
                     },
                     required: ["action"]
+                  }
+                },
+                {
+                  name: "send_message",
+                  description: "Sends a message to a specific contact (e.g., 'wife', 'boss').",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      recipient: { type: Type.STRING, description: "The contact name or relationship." },
+                      content: { type: Type.STRING, description: "The message content." }
+                    },
+                    required: ["recipient", "content"]
+                  }
+                },
+                {
+                  name: "play_media",
+                  description: "Plays music or opens a video based on the user's preference.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      query: { type: Type.STRING, description: "The name of the song, artist, or video title." },
+                      mediaType: { type: Type.STRING, enum: ["music", "video"], description: "The type of media to play." }
+                    },
+                    required: ["query", "mediaType"]
+                  }
+                },
+                {
+                  name: "generate_creative",
+                  description: "Generates high-quality creative images or posters (like criart.ai).",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      prompt: { type: Type.STRING, description: "Detailed description of the creative to generate." },
+                      aspectRatio: { type: Type.STRING, enum: ["1:1", "16:9", "9:16", "4:3"], description: "The aspect ratio of the image." }
+                    },
+                    required: ["prompt"]
+                  }
+                },
+                {
+                  name: "send_file",
+                  description: "Sends a specific file from the Data Core to a recipient.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      fileName: { type: Type.STRING, description: "The exact name of the file in the Data Core." },
+                      recipient: { type: Type.STRING, description: "The contact name or relationship." }
+                    },
+                    required: ["fileName", "recipient"]
                   }
                 },
                 {
@@ -406,7 +447,7 @@ export default function JarvisApp() {
               startCaptureLoop();
             }
           },
-          onmessage: async (message: any) => {
+          onmessage: (message: LiveServerMessage) => {
             const serverContent = message.serverContent;
             if (serverContent?.modelTurn) {
               const parts = serverContent.modelTurn.parts;
@@ -414,13 +455,17 @@ export default function JarvisApp() {
               // Handle Audio
               const audioPart = parts?.find((p: any) => p.inlineData);
               if (audioPart?.inlineData?.data) {
-                const binaryString = atob(audioPart.inlineData.data);
-                const bytes = new Int16Array(binaryString.length / 2);
-                for (let i = 0; i < bytes.length; i++) {
-                  bytes[i] = (binaryString.charCodeAt(i * 2 + 1) << 8) | binaryString.charCodeAt(i * 2);
+                try {
+                  const binaryString = atob(audioPart.inlineData.data);
+                  const bytes = new Int16Array(binaryString.length / 2);
+                  for (let i = 0; i < bytes.length; i++) {
+                    bytes[i] = (binaryString.charCodeAt(i * 2 + 1) << 8) | binaryString.charCodeAt(i * 2);
+                  }
+                  audioQueue.current.push(bytes);
+                  if (!isPlaying.current) playNextInQueue();
+                } catch (e) {
+                  console.error('Audio decoding error:', e);
                 }
-                audioQueue.current.push(bytes);
-                if (!isPlaying.current) playNextInQueue();
               }
 
               // Handle Transcription (Notepad)
@@ -447,158 +492,229 @@ export default function JarvisApp() {
 
             // Handle Tool Calls
             if (message.toolCall) {
-              const functionCalls = message.toolCall.functionCalls;
-              const functionResponses = [];
+              const functionCalls = message.toolCall.functionCalls || [];
+              const functionResponses: { name: string; response: any; id: string }[] = [];
 
-              for (const fc of functionCalls) {
-                addLog(`Executing protocol: ${fc.name}...`);
-                
-                if (fc.name === 'open_notepad') {
-                  setIsNotepadOpen(true);
-                  functionResponses.push({ name: fc.name, response: { result: "Notepad opened successfully." }, id: fc.id });
-                } else if (fc.name === 'open_data_core') {
-                  setIsDataCoreOpen(true);
-                  functionResponses.push({ name: fc.name, response: { result: "Data Core opened successfully." }, id: fc.id });
-                } else if (fc.name === 'open_github_uplink') {
-                  setIsGithubOpen(true);
-                  fetchGithubRepos();
-                  functionResponses.push({ name: fc.name, response: { result: "GitHub Uplink opened successfully." }, id: fc.id });
-                } else if (fc.name === 'add_to_notepad') {
-                  const { content } = fc.args as any;
-                  setNotes(prev => [
-                    { 
-                      id: Math.random().toString(36).substr(2, 9), 
-                      text: content, 
-                      timestamp: new Date().toLocaleTimeString() 
-                    }, 
-                    ...prev
-                  ]);
-                  setIsNotepadOpen(true);
-                  addLog('Information secured in Notepad, Sir.');
-                  functionResponses.push({ name: fc.name, response: { result: "Content saved to notepad." }, id: fc.id });
-                } else if (fc.name === 'execute_automation') {
-                  const { action, target } = fc.args as any;
-                  let result = "";
+              const processFunctionCalls = async () => {
+                for (const fc of functionCalls) {
+                  addLog(`Executing protocol: ${fc.name}...`);
                   
-                  if (action === 'open_youtube') {
-                    const url = target ? `https://www.youtube.com/results?search_query=${encodeURIComponent(target)}` : 'https://www.youtube.com';
-                    window.open(url, '_blank');
-                    result = "YouTube interface initialized.";
-                  } else if (action === 'whatsapp_call' || action === 'whatsapp_message') {
-                    const url = `https://web.whatsapp.com/send?phone=${target || ''}`;
-                    window.open(url, '_blank');
-                    result = "WhatsApp communication channel opened.";
-                  } else if (action === 'open_url') {
-                    window.open(target.startsWith('http') ? target : `https://${target}`, '_blank');
-                    result = `Navigation to ${target} initiated.`;
-                  } else {
-                    result = "Automation protocol not recognized.";
-                  }
-                  
-                  addLog(`Automation executed: ${action}`);
-                  functionResponses.push({ name: fc.name, response: { result }, id: fc.id });
-                } else if (fc.name === 'search_local_files') {
-                  const { query } = fc.args as any;
-                  const results = uploadedFiles.filter(f => 
-                    f.name.toLowerCase().includes(query.toLowerCase()) || 
-                    f.content.toLowerCase().includes(query.toLowerCase())
-                  );
-                  
-                  if (results.length > 0) {
-                    addLog(`File search complete. Found ${results.length} matches.`);
+                  if (fc.name === 'open_notepad') {
+                    setIsNotepadOpen(true);
+                    functionResponses.push({ name: fc.name, response: { result: "Notepad opened successfully." }, id: fc.id || '' });
+                  } else if (fc.name === 'open_data_core') {
+                    setIsDataCoreOpen(true);
+                    functionResponses.push({ name: fc.name, response: { result: "Data Core opened successfully." }, id: fc.id || '' });
+                  } else if (fc.name === 'open_github_uplink') {
+                    setIsGithubOpen(true);
+                    fetchGithubRepos();
+                    functionResponses.push({ name: fc.name, response: { result: "GitHub Uplink opened successfully." }, id: fc.id || '' });
+                  } else if (fc.name === 'add_to_notepad') {
+                    const { content } = fc.args as any;
+                    setNotes(prev => [
+                      { 
+                        id: Math.random().toString(36).substr(2, 9), 
+                        text: content, 
+                        timestamp: new Date().toLocaleTimeString() 
+                      }, 
+                      ...prev
+                    ]);
+                    setIsNotepadOpen(true);
+                    addLog('Information secured in Notepad, Sir.');
+                    functionResponses.push({ name: fc.name, response: { result: "Content saved to notepad." }, id: fc.id || '' });
+                  } else if (fc.name === 'execute_automation') {
+                    const { action, target } = fc.args as any;
+                    let result = "";
+                    
+                    if (action === 'open_youtube') {
+                      const url = target ? `https://www.youtube.com/results?search_query=${encodeURIComponent(target)}` : 'https://www.youtube.com';
+                      window.open(url, '_blank');
+                      result = "YouTube interface initialized.";
+                    } else if (action === 'whatsapp_call' || action === 'whatsapp_message') {
+                      const url = `https://web.whatsapp.com/send?phone=${target || ''}`;
+                      window.open(url, '_blank');
+                      result = "WhatsApp communication channel opened.";
+                    } else if (action === 'open_url') {
+                      window.open(target.startsWith('http') ? target : `https://${target}`, '_blank');
+                      result = `Navigation to ${target} initiated.`;
+                    } else {
+                      result = "Automation protocol not recognized.";
+                    }
+                    
+                    addLog(`Automation executed: ${action}`);
+                    functionResponses.push({ name: fc.name, response: { result }, id: fc.id || '' });
+                  } else if (fc.name === 'search_local_files') {
+                    const { query } = fc.args as any;
+                    const results = uploadedFiles.filter(f => 
+                      f.name.toLowerCase().includes(query.toLowerCase()) || 
+                      f.content.toLowerCase().includes(query.toLowerCase())
+                    );
+                    
+                    if (results.length > 0) {
+                      addLog(`File search complete. Found ${results.length} matches.`);
+                      functionResponses.push({ 
+                        name: fc.name, 
+                        response: { result: `Found files: ${results.map(r => r.name).join(', ')}` }, 
+                        id: fc.id || '' 
+                      });
+                    } else {
+                      addLog('No matching files found in Data Core.');
+                      functionResponses.push({ name: fc.name, response: { result: "No files found matching the query." }, id: fc.id || '' });
+                    }
+                  } else if (fc.name === 'control_home_device') {
+                    const { device, action, value } = fc.args as any;
+                    addLog(`Home Automation: ${action} on ${device}${value ? ' to ' + value : ''}`);
+                    
+                    setHomeDevices(prev => prev.map(d => {
+                      if (d.name.toLowerCase().includes(device.toLowerCase())) {
+                        let newStatus = d.status;
+                        if (action === 'turn_on') newStatus = 'ON';
+                        if (action === 'turn_off') newStatus = 'OFF';
+                        if (action === 'set_temperature') newStatus = `${value}°C`;
+                        if (action === 'lock') newStatus = 'LOCKED';
+                        if (action === 'unlock') newStatus = 'UNLOCKED';
+                        return { ...d, status: newStatus };
+                      }
+                      return d;
+                    }));
+                    
+                    setIsHomePanelOpen(true);
                     functionResponses.push({ 
                       name: fc.name, 
-                      response: { result: `Found files: ${results.map(r => r.name).join(', ')}` }, 
-                      id: fc.id 
+                      response: { result: `Success: ${device} ${action} executed via Home Assistant protocol.` }, 
+                      id: fc.id || '' 
                     });
-                  } else {
-                    addLog('No matching files found in Data Core.');
-                    functionResponses.push({ name: fc.name, response: { result: "No files found matching the query." }, id: fc.id });
-                  }
-                } else if (fc.name === 'control_home_device') {
-                  const { device, action, value } = fc.args as any;
-                  addLog(`Home Automation: ${action} on ${device}${value ? ' to ' + value : ''}`);
-                  
-                  setHomeDevices(prev => prev.map(d => {
-                    if (d.name.toLowerCase().includes(device.toLowerCase())) {
-                      let newStatus = d.status;
-                      if (action === 'turn_on') newStatus = 'ON';
-                      if (action === 'turn_off') newStatus = 'OFF';
-                      if (action === 'set_temperature') newStatus = `${value}°C`;
-                      if (action === 'lock') newStatus = 'LOCKED';
-                      if (action === 'unlock') newStatus = 'UNLOCKED';
-                      return { ...d, status: newStatus };
+                  } else if (fc.name === 'request_local_access') {
+                    const script = `
+  # J.A.R.V.I.S. Local Uplink Protocol v1.0
+  # Run this script on your machine to grant Jarvis local access.
+  import os
+  import subprocess
+  import platform
+  
+  def execute_command(cmd):
+      try:
+          if platform.system() == "Windows":
+              subprocess.Popen(cmd, shell=True)
+          else:
+              subprocess.Popen(cmd.split())
+          return "Command executed, Sir."
+      except Exception as e:
+          return f"Error: {str(e)}"
+  
+  print("J.A.R.V.I.S. Local Uplink Active...")
+  # This is a template. In a real scenario, this would connect via WebSockets.
+  `;
+                    setNotes(prev => [
+                      { 
+                        id: 'local_uplink_script', 
+                        text: script, 
+                        timestamp: new Date().toLocaleTimeString() 
+                      }, 
+                      ...prev
+                    ]);
+                    setIsNotepadOpen(true);
+                    setIsLocalUplinkOpen(true);
+                    addLog('Local Uplink protocol generated. Check your Notepad, Sir.');
+                    functionResponses.push({ name: fc.name, response: { result: "Local Uplink script provided in notepad." }, id: fc.id || '' });
+                  } else if (fc.name === 'list_github_repos') {
+                    await fetchGithubRepos();
+                    functionResponses.push({ name: fc.name, response: { result: "GitHub repositories fetched." }, id: fc.id || '' });
+                  } else if (fc.name === 'create_github_repo') {
+                    const { name, description, isPrivate } = fc.args as any;
+                    try {
+                      const repo = await createGithubRepo(name, description, isPrivate);
+                      functionResponses.push({ name: fc.name, response: { result: `Repository created: ${repo.html_url}` }, id: fc.id || '' });
+                    } catch (e: any) {
+                      functionResponses.push({ name: fc.name, response: { error: e.message }, id: fc.id || '' });
                     }
-                    return d;
-                  }));
-                  
-                  setIsHomePanelOpen(true);
-                  functionResponses.push({ 
-                    name: fc.name, 
-                    response: { result: `Success: ${device} ${action} executed via Home Assistant protocol.` }, 
-                    id: fc.id 
-                  });
-                } else if (fc.name === 'request_local_access') {
-                  const script = `
-# J.A.R.V.I.S. Local Uplink Protocol v1.0
-# Run this script on your machine to grant Jarvis local access.
-import os
-import subprocess
-import platform
+                  } else if (fc.name === 'send_message') {
+                    const { recipient, content } = fc.args as any;
+                    addLog(`Message transmitted to ${recipient}: "${content}"`);
+                    // Simulate sending message
+                    if (recipient.toLowerCase() === 'wife' || recipient.toLowerCase() === 'esposa') {
+                      addLog('Secure channel to Wife established. Message delivered.');
+                    }
+                    functionResponses.push({ name: fc.name, response: { result: `Message sent to ${recipient}.` }, id: fc.id || '' });
+                  } else if (fc.name === 'play_media') {
+                    const { query, mediaType } = fc.args as any;
+                    setMediaQuery(query);
+                    setMediaType(mediaType);
+                    setIsMediaPlayerOpen(true);
+                    addLog(`Initializing ${mediaType} playback: ${query}`);
+                    functionResponses.push({ name: fc.name, response: { result: `${mediaType} playback started for ${query}.` }, id: fc.id || '' });
+                  } else if (fc.name === 'generate_creative') {
+                    const { prompt, aspectRatio } = fc.args as any;
+                    setIsGeneratingCreative(true);
+                    addLog(`Generating creative: ${prompt}...`);
+                    
+                    try {
+                      const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
+                      const response = await ai.models.generateContent({
+                        model: 'gemini-2.5-flash-image',
+                        contents: [{ parts: [{ text: `Generate a high-quality creative poster or image for: ${prompt}. Style: Professional, Cinematic, like criart.ai.` }] }],
+                        config: {
+                          imageConfig: {
+                            aspectRatio: aspectRatio || "1:1"
+                          }
+                        }
+                      });
 
-def execute_command(cmd):
-    try:
-        if platform.system() == "Windows":
-            subprocess.Popen(cmd, shell=True)
-        else:
-            subprocess.Popen(cmd.split())
-        return "Command executed, Sir."
-    except Exception as e:
-        return f"Error: {str(e)}"
+                      let imageUrl = "";
+                      for (const part of response.candidates?.[0]?.content?.parts || []) {
+                        if (part.inlineData) {
+                          imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+                          break;
+                        }
+                      }
 
-print("J.A.R.V.I.S. Local Uplink Active...")
-# This is a template. In a real scenario, this would connect via WebSockets.
-`;
-                  setNotes(prev => [
-                    { 
-                      id: 'local_uplink_script', 
-                      text: script, 
-                      timestamp: new Date().toLocaleTimeString() 
-                    }, 
-                    ...prev
-                  ]);
-                  setIsNotepadOpen(true);
-                  setIsLocalUplinkOpen(true);
-                  addLog('Local Uplink protocol generated. Check your Notepad, Sir.');
-                  functionResponses.push({ name: fc.name, response: { result: "Local Uplink script provided in notepad." }, id: fc.id });
-                } else if (fc.name === 'list_github_repos') {
-                  await fetchGithubRepos();
-                  functionResponses.push({ name: fc.name, response: { result: "GitHub repositories fetched." }, id: fc.id });
-                } else if (fc.name === 'create_github_repo') {
-                  const { name, description, isPrivate } = fc.args as any;
-                  try {
-                    const repo = await createGithubRepo(name, description, isPrivate);
-                    functionResponses.push({ name: fc.name, response: { result: `Repository created: ${repo.html_url}` }, id: fc.id });
-                  } catch (e: any) {
-                    functionResponses.push({ name: fc.name, response: { error: e.message }, id: fc.id });
+                      if (imageUrl) {
+                        const newCreative = {
+                          id: Math.random().toString(36).substr(2, 9),
+                          prompt,
+                          url: imageUrl,
+                          timestamp: new Date().toLocaleTimeString()
+                        };
+                        setGeneratedCreatives(prev => [newCreative, ...prev]);
+                        setIsCreativeGalleryOpen(true);
+                        addLog('Creative generation complete, Sir. Displaying in gallery.');
+                        functionResponses.push({ name: fc.name, response: { result: "Creative generated successfully." }, id: fc.id || '' });
+                      } else {
+                        throw new Error("No image data received from model.");
+                      }
+                    } catch (e: any) {
+                      addLog(`Creative generation failed: ${e.message}`);
+                      functionResponses.push({ name: fc.name, response: { error: e.message }, id: fc.id || '' });
+                    } finally {
+                      setIsGeneratingCreative(false);
+                    }
+                  } else if (fc.name === 'send_file') {
+                    const { fileName, recipient } = fc.args as any;
+                    const file = uploadedFiles.find(f => f.name === fileName);
+                    if (file) {
+                      addLog(`Transmitting file "${fileName}" to ${recipient}...`);
+                      addLog(`File "${fileName}" successfully delivered to ${recipient}.`);
+                      functionResponses.push({ name: fc.name, response: { result: `File ${fileName} sent to ${recipient}.` }, id: fc.id || '' });
+                    } else {
+                      addLog(`Error: File "${fileName}" not found in Data Core.`);
+                      functionResponses.push({ name: fc.name, response: { error: "File not found." }, id: fc.id || '' });
+                    }
+                  } else if (fc.name === 'system_diagnostic') {
+                    addLog('Running Level 5 Diagnostic...');
+                    setTimeout(() => addLog('Core temperature: 34°C. All sectors nominal.'), 1000);
+                    functionResponses.push({ name: fc.name, response: { result: "Diagnostic complete. Systems nominal." }, id: fc.id || '' });
+                  } else if (fc.name === 'clear_logs') {
+                    setLogs(['[SYSTEM] Logs cleared by administrative override.']);
+                    functionResponses.push({ name: fc.name, response: { result: "Logs cleared." }, id: fc.id || '' });
                   }
-                } else if (fc.name === 'send_message') {
-                  const { recipient, content } = fc.args as any;
-                  addLog(`Message transmitted to ${recipient}: "${content}"`);
-                  functionResponses.push({ name: fc.name, response: { result: `Message sent to ${recipient}.` }, id: fc.id });
-                } else if (fc.name === 'system_diagnostic') {
-                  addLog('Running Level 5 Diagnostic...');
-                  setTimeout(() => addLog('Core temperature: 34°C. All sectors nominal.'), 1000);
-                  functionResponses.push({ name: fc.name, response: { result: "Diagnostic complete. Systems nominal." }, id: fc.id });
-                } else if (fc.name === 'clear_logs') {
-                  setLogs(['[SYSTEM] Logs cleared by administrative override.']);
-                  functionResponses.push({ name: fc.name, response: { result: "Logs cleared." }, id: fc.id });
                 }
-              }
+  
+                if (functionResponses.length > 0) {
+                  session.sendToolResponse({ functionResponses });
+                }
+              };
 
-              if (functionResponses.length > 0) {
-                session.sendToolResponse({ functionResponses });
-              }
+              processFunctionCalls();
             }
           },
           onclose: () => {
@@ -607,7 +723,7 @@ print("J.A.R.V.I.S. Local Uplink Active...")
             stopSession();
           },
           onerror: (err: any) => {
-            console.error('Neural Link Error:', err);
+            console.error('Neural Link Error Details:', err);
             let errorMsg = 'Unknown connection error';
             
             if (err?.message) {
@@ -615,13 +731,17 @@ print("J.A.R.V.I.S. Local Uplink Active...")
             } else if (typeof err === 'string') {
               errorMsg = err;
             } else if (err?.target instanceof WebSocket) {
-              errorMsg = 'WebSocket connection failed. This usually happens due to network issues or API limits.';
+              errorMsg = 'WebSocket connection failed. This usually happens due to network issues, invalid API key, or regional restrictions.';
+            } else if (err instanceof Error) {
+              errorMsg = err.message;
             }
 
             if (errorMsg.toLowerCase().includes('internal error encountered')) {
-              addLog('Neural link failure: Internal server error. Sir, the Gemini network is experiencing instability. I recommend a manual reset.');
+              addLog('Neural link failure: Internal server error. Sir, the Gemini network is experiencing instability.');
             } else if (errorMsg.toLowerCase().includes('unavailable')) {
               addLog('Neural link unstable: Service unavailable. Sir, I suggest we try again in a moment.');
+            } else if (errorMsg.toLowerCase().includes('api key')) {
+              addLog('Neural link failure: Invalid API Key. Please verify your credentials, Sir.');
             } else {
               addLog(`System error: ${errorMsg}`);
             }
@@ -713,6 +833,7 @@ print("J.A.R.V.I.S. Local Uplink Active...")
   const playNextInQueue = async () => {
     if (audioQueue.current.length === 0) {
       isPlaying.current = false;
+      setAudioLevel(0);
       setStatus('ONLINE');
       return;
     }
@@ -721,6 +842,15 @@ print("J.A.R.V.I.S. Local Uplink Active...")
     setStatus('SPEAKING');
     const pcmData = audioQueue.current.shift()!;
     
+    // Calculate audio level for output visualization
+    let sum = 0;
+    for (let i = 0; i < pcmData.length; i++) {
+      const val = pcmData[i] / 0x7FFF;
+      sum += val * val;
+    }
+    const level = Math.sqrt(sum / pcmData.length);
+    setAudioLevel(level);
+
     let audioContext = audioContextRef.current;
     if (!audioContext || audioContext.state === 'closed') {
       audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -881,46 +1011,16 @@ print("J.A.R.V.I.S. Local Uplink Active...")
         />
         
         {/* Main Reactor */}
-        <div className="relative w-64 h-64 rounded-full flex items-center justify-center arc-reactor-ring bg-black/40 backdrop-blur-xl group cursor-pointer"
+        <div className="relative w-80 h-80 rounded-full flex items-center justify-center group cursor-pointer"
              onClick={toggleMic}>
           
           {/* Inner Glow */}
-          <div className="absolute inset-4 rounded-full bg-[#00d2ff]/5 blur-2xl animate-pulse" />
+          <div className="absolute inset-0 rounded-full bg-[#00d2ff]/5 blur-3xl animate-pulse" />
           
-          {/* Core Orb */}
-          <motion.div 
-            animate={{ 
-              scale: status === 'SPEAKING' ? [1, 1.1, 1] : (1 + audioLevel * 2),
-              opacity: status === 'ONLINE' ? 0.8 : 0.4,
-              boxShadow: `0 0 ${20 + audioLevel * 100}px rgba(0, 210, 255, ${0.4 + audioLevel})`
-            }}
-            transition={{ duration: 0.1 }}
-            className="w-32 h-32 rounded-full bg-gradient-to-br from-[#00d2ff] to-[#0080ff] flex items-center justify-center overflow-hidden"
-          >
-            {/* Visualizer Waves */}
-            <AnimatePresence>
-              {status === 'SPEAKING' && (
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="flex gap-1 items-center"
-                >
-                  {[...Array(5)].map((_, i) => (
-                    <motion.div
-                      key={i}
-                      animate={{ height: [10, 40, 10] }}
-                      transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.1 }}
-                      className="w-1 bg-white/80 rounded-full"
-                    />
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {status === 'SYSTEM IDLE' && <Mic size={40} className="text-white opacity-80" />}
-            {status === 'ONLINE' && <Activity size={40} className="text-white animate-pulse" />}
-          </motion.div>
+          {/* Jarvis Particle Face */}
+          <div className="w-full h-full relative z-20">
+            <JarvisFace audioLevel={audioLevel} status={status} />
+          </div>
 
           {/* Status Label */}
           <div className="absolute -bottom-12 flex flex-col items-center">
@@ -963,6 +1063,25 @@ print("J.A.R.V.I.S. Local Uplink Active...")
 
       {/* Notepad & Data Core Toggle Buttons */}
       <div className="absolute top-8 right-8 flex flex-wrap justify-end gap-2 sm:gap-4 max-w-[calc(100vw-4rem)]">
+        <button 
+          onClick={() => setIsCreativeGalleryOpen(true)}
+          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-pink-500/30 text-pink-400 hover:bg-pink-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest relative"
+        >
+          <ImageIcon size={14} className="sm:w-4 sm:h-4" />
+          <span className="hidden xs:inline">Creatives</span>
+          <span className="xs:hidden">Art</span>
+          {generatedCreatives.length > 0 && (
+            <span className="bg-pink-500 text-black px-1.5 rounded-full text-[10px] font-bold">
+              {generatedCreatives.length}
+            </span>
+          )}
+          {isGeneratingCreative && (
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-pink-500"></span>
+            </span>
+          )}
+        </button>
         <button 
           onClick={() => setIsLocalUplinkOpen(true)}
           className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest"
@@ -1017,6 +1136,110 @@ print("J.A.R.V.I.S. Local Uplink Active...")
           )}
         </button>
       </div>
+
+      {/* Media Player Panel */}
+      <AnimatePresence>
+        {isMediaPlayerOpen && (
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            className="fixed bottom-0 left-0 right-0 h-32 bg-black/90 backdrop-blur-xl border-t border-[#00d2ff]/20 z-[60] flex items-center px-8 gap-8"
+          >
+            <div className="w-16 h-16 rounded-lg bg-[#00d2ff]/10 flex items-center justify-center border border-[#00d2ff]/20">
+              {mediaType === 'music' ? <Music className="text-[#00d2ff]" /> : <Film className="text-[#00d2ff]" />}
+            </div>
+            <div className="flex-1">
+              <div className="text-[#00d2ff]/60 text-[10px] uppercase tracking-widest mb-1">Now Playing</div>
+              <div className="text-[#00d2ff] font-display text-lg uppercase tracking-wider truncate">{mediaQuery}</div>
+              <div className="mt-2 w-full h-1 bg-[#00d2ff]/10 rounded-full overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: '100%' }}
+                  transition={{ duration: 30, repeat: Infinity }}
+                  className="h-full bg-[#00d2ff]"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <button onClick={() => setIsMediaPlayerOpen(false)} className="p-2 text-[#00d2ff]/60 hover:text-[#00d2ff]">
+                <X size={24} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Creative Gallery Panel */}
+      <AnimatePresence>
+        {isCreativeGalleryOpen && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            className="absolute top-0 right-0 w-full sm:w-[500px] h-full bg-black/95 backdrop-blur-3xl border-l border-pink-500/20 z-50 flex flex-col"
+          >
+            <div className="p-6 border-b border-pink-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-3 text-pink-400">
+                <ImageIcon size={20} className="animate-pulse" />
+                <h2 className="font-display text-lg tracking-widest uppercase">Creative Gallery</h2>
+              </div>
+              <button 
+                onClick={() => setIsCreativeGalleryOpen(false)}
+                className="text-pink-500/60 hover:text-pink-400 transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+              {generatedCreatives.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-pink-500/40 text-center space-y-4">
+                  <ImageIcon size={48} strokeWidth={1} />
+                  <p className="font-mono text-xs uppercase tracking-widest">No creatives generated yet, Sir.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6">
+                  {generatedCreatives.map((creative) => (
+                    <motion.div 
+                      key={creative.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="group relative rounded-2xl overflow-hidden border border-pink-500/20 bg-pink-500/5"
+                    >
+                      <Image 
+                        src={creative.url} 
+                        alt={creative.prompt}
+                        width={500}
+                        height={500}
+                        className="w-full aspect-square object-cover transition-transform duration-500 group-hover:scale-110"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent p-4 flex flex-col justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <p className="text-white font-mono text-[10px] line-clamp-2 mb-2">{creative.prompt}</p>
+                        <div className="flex justify-between items-center">
+                          <span className="text-pink-400 text-[9px] uppercase tracking-tighter">{creative.timestamp}</span>
+                          <button 
+                            onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = creative.url;
+                              link.download = `jarvis-creative-${creative.id}.png`;
+                              link.click();
+                            }}
+                            className="p-2 bg-pink-500 text-black rounded-full hover:bg-pink-400 transition-colors"
+                          >
+                            <Upload size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Data Core Panel */}
       <AnimatePresence>
