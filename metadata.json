@@ -1,0 +1,8 @@
+{
+  "name": "Remix: J.A.R.V.I.S. AI",
+  "description": "A futuristic virtual assistant inspired by Iron Man\u0027s J.A.R.V.I.S., powered by Gemini Live API for real-time voice interaction.",
+  "requestFramePermissions": [
+    "microphone",
+    "display-capture"
+  ]
+}

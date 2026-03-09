@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+:root {
+  --jarvis-blue: #00d2ff;
+  --jarvis-glow: rgba(0, 210, 255, 0.5);
+}
+
+body {
+  background-color: #050505;
+  color: #e0e0e0;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+.glow-text {
+  text-shadow: 0 0 10px var(--jarvis-glow);
+}
+
+.arc-reactor-ring {
+  border: 2px solid var(--jarvis-blue);
+  box-shadow: 0 0 20px var(--jarvis-glow), inset 0 0 20px var(--jarvis-glow);
+}
