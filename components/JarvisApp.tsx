@@ -837,7 +837,7 @@ if __name__ == "__main__":
     initialize_bridge()
     print("\\nREADY FOR COMMANDS, SIR.")
     
-    monitor_thread = threading.Thread(target=start_monitoring, args=('.'), daemon=True)
+    monitor_thread = threading.Thread(target=start_monitoring, args=('.',), daemon=True)
     monitor_thread.start()
     
     try:
