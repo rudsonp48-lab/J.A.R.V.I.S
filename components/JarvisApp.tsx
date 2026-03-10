@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import Image from 'next/image';
 import { Mic, MicOff, Volume2, VolumeX, Terminal, Shield, Cpu, Activity, Copy, FileText, X, Check, Monitor, MonitorOff, Database, Upload, Send, Github, ExternalLink, Plus, RefreshCw, Home, Lightbulb, Thermometer, Lock, Unlock, Link, Smartphone, Image as ImageIcon, Play, Music, Film } from 'lucide-react';
 import { GoogleGenAI, Modality, Type, LiveServerMessage } from "@google/genai";
-import JarvisFace from './JarvisFace';
+import { JarvisFace } from './JarvisFace';
 
 export default function JarvisApp() {
   const [isListening, setIsListening] = useState(false);
@@ -63,6 +63,7 @@ export default function JarvisApp() {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const audioQueue = useRef<Int16Array[]>([]);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const isPlaying = useRef(false);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -79,6 +80,25 @@ export default function JarvisApp() {
     setTimeout(() => setCopiedId(null), 2000);
     addLog('Data copied to clipboard, Sir.');
   };
+
+  const [isBooting, setIsBooting] = useState(true);
+  const [bootProgress, setBootProgress] = useState(0);
+
+  useEffect(() => {
+    if (isBooting) {
+      const interval = setInterval(() => {
+        setBootProgress(prev => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            setTimeout(() => setIsBooting(false), 500);
+            return 100;
+          }
+          return prev + 2;
+        });
+      }, 30);
+      return () => clearInterval(interval);
+    }
+  }, [isBooting]);
 
   useEffect(() => {
     setHasMounted(true);
@@ -579,6 +599,7 @@ export default function JarvisApp() {
             if (serverContent?.interrupted) {
               audioQueue.current = [];
               isPlaying.current = false;
+              setIsSpeaking(false);
               addLog('Transmission interrupted.');
             }
 
@@ -1168,12 +1189,14 @@ if __name__ == "__main__":
   const playNextInQueue = async () => {
     if (audioQueue.current.length === 0) {
       isPlaying.current = false;
+      setIsSpeaking(false);
       setAudioLevel(0);
       setStatus('ONLINE');
       return;
     }
 
     isPlaying.current = true;
+    setIsSpeaking(true);
     setStatus('SPEAKING');
     const pcmData = audioQueue.current.shift()!;
     
@@ -1218,6 +1241,8 @@ if __name__ == "__main__":
     }
     audioContextRef.current = null;
     audioDetectedRef.current = false;
+    isPlaying.current = false;
+    setIsSpeaking(false);
     setAudioLevel(0);
     
     if (captureIntervalRef.current) {
@@ -1305,200 +1330,396 @@ if __name__ == "__main__":
   };
 
   return (
-    <div 
-      className="relative h-screen w-screen flex flex-col items-center justify-center bg-[#050505] font-sans overflow-hidden"
-      style={{ backgroundColor: '#050505' }}
-    >
-      {/* Background Grid */}
-      <div className="absolute inset-0 opacity-10 pointer-events-none" 
-           style={{ backgroundImage: 'linear-gradient(#00d2ff 1px, transparent 1px), linear-gradient(90deg, #00d2ff 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
-      
-      {/* HUD Elements */}
-      <div className="absolute top-8 left-8 flex flex-col gap-4">
-        <div className="flex items-center gap-3 text-[#00d2ff]">
-          <Shield size={20} className="animate-pulse" />
-          <span className="font-display text-sm tracking-widest uppercase">Security: Active</span>
-        </div>
-        <div className="flex items-center gap-3 text-[#00d2ff]">
-          <Cpu size={20} />
-          <span className="font-display text-sm tracking-widest uppercase">Core: Stable</span>
-        </div>
-      </div>
-
-      <div className="absolute top-8 right-8 flex flex-col items-end gap-2">
-        <div className="text-[#00d2ff] font-mono text-xs opacity-50 uppercase tracking-tighter">
-          Location: Malibu, CA
-        </div>
-        <div className="text-[#00d2ff] font-display text-xl glow-text">
-          {hasMounted ? (currentTime || '--:--:--') : '--:--:--'}
-        </div>
-      </div>
-
-      {/* Central Arc Reactor Orb */}
-      <div className="relative flex items-center justify-center scale-75 sm:scale-100">
-        {/* Outer Rings */}
-        <motion.div 
-          animate={{ rotate: 360 }}
-          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-          className="absolute w-[400px] h-[400px] rounded-full border border-[#00d2ff]/20 border-dashed"
-        />
-        <motion.div 
-          animate={{ rotate: -360 }}
-          transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-          className="absolute w-[350px] h-[350px] rounded-full border-2 border-[#00d2ff]/10 border-dotted"
-        />
-        
-        {/* Main Reactor */}
-        <div className="relative w-80 h-80 rounded-full flex items-center justify-center group cursor-pointer"
-             onClick={toggleMic}>
-          
-          {/* Inner Glow */}
-          <div className="absolute inset-0 rounded-full bg-[#00d2ff]/5 blur-3xl animate-pulse" />
-          
-          {/* Jarvis Particle Face */}
-          <div className="w-full h-full relative z-20">
-            <JarvisFace audioLevel={audioLevel} status={status} />
-          </div>
-
-          {/* Status Label */}
-          <div className="absolute -bottom-12 flex flex-col items-center">
-            <span className="text-[#00d2ff] font-display text-xs tracking-[0.3em] uppercase glow-text">
-              {status}
-            </span>
-            <div className="mt-2 flex gap-1">
-              {[...Array(3)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  animate={{ opacity: [0.2, 1, 0.2] }}
-                  transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.3 }}
-                  className="w-1.5 h-1.5 rounded-full bg-[#00d2ff]"
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Terminal Logs */}
-      <div className="hidden sm:block absolute bottom-8 left-8 w-80 font-mono text-[10px] text-[#00d2ff]/60 uppercase tracking-wider">
-        <div className="flex items-center gap-2 mb-2 border-b border-[#00d2ff]/20 pb-1">
-          <Terminal size={12} />
-          <span>System Diagnostics</span>
-        </div>
-        <div className="space-y-1">
-          {logs.map((log, i) => (
+    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-[#00d2ff]/30 overflow-hidden relative">
+      {/* Startup Sequence */}
+      <AnimatePresence>
+        {isBooting && (
+          <motion.div 
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center"
+          >
             <motion.div 
-              key={i}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="truncate"
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="relative w-32 h-32 mb-8"
             >
-              {log}
+              <div className="absolute inset-0 border-4 border-[#00d2ff]/20 rounded-full" />
+              <motion.div 
+                animate={{ rotate: 360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-0 border-4 border-t-[#00d2ff] rounded-full"
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Shield size={40} className="text-[#00d2ff] animate-pulse" />
+              </div>
             </motion.div>
+            <div className="w-64 h-1 bg-white/5 rounded-full overflow-hidden mb-4">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${bootProgress}%` }}
+                className="h-full bg-[#00d2ff] shadow-[0_0_15px_#00d2ff]"
+              />
+            </div>
+            <div className="font-mono text-[10px] text-[#00d2ff] tracking-[0.5em] uppercase">
+              Initializing Jarvis OS... {bootProgress}%
+            </div>
+            <div className="mt-8 grid grid-cols-2 gap-x-12 gap-y-2 font-mono text-[8px] text-white/20 uppercase">
+              <div>Neural Link: {bootProgress > 20 ? 'OK' : '...'}</div>
+              <div>Data Core: {bootProgress > 40 ? 'OK' : '...'}</div>
+              <div>Security: {bootProgress > 60 ? 'OK' : '...'}</div>
+              <div>Interface: {bootProgress > 80 ? 'OK' : '...'}</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Cinematic Background */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+        <div className="absolute inset-0 bg-[#050505]" />
+        
+        {/* Dynamic Nebula Effects */}
+        <motion.div 
+          animate={{ 
+            scale: [1, 1.2, 1],
+            opacity: [0.3, 0.5, 0.3],
+            rotate: [0, 45, 0]
+          }}
+          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+          className="absolute -top-1/4 -left-1/4 w-[150%] h-[150%] bg-[radial-gradient(circle_at_center,#00d2ff10,transparent_50%)] blur-[120px]"
+        />
+        <motion.div 
+          animate={{ 
+            scale: [1.2, 1, 1.2],
+            opacity: [0.2, 0.4, 0.2],
+            rotate: [0, -45, 0]
+          }}
+          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
+          className="absolute -bottom-1/4 -right-1/4 w-[150%] h-[150%] bg-[radial-gradient(circle_at_center,#6366f110,transparent_50%)] blur-[150px]"
+        />
+
+        {/* Grid & Scanning Lines */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:60px_60px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#050505_70%)]" />
+        
+        {/* Moving Scanline */}
+        <motion.div 
+          animate={{ y: ['-100%', '200%'] }}
+          transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+          className="absolute inset-x-0 h-[500px] bg-gradient-to-b from-transparent via-[#00d2ff05] to-transparent opacity-30"
+        />
+
+        {/* Floating Particles */}
+        <div className="absolute inset-0">
+          {[...Array(20)].map((_, i) => (
+            <motion.div
+              key={i}
+              initial={{ 
+                x: Math.random() * 100 + '%', 
+                y: Math.random() * 100 + '%',
+                opacity: Math.random() * 0.5
+              }}
+              animate={{ 
+                y: [null, Math.random() * -100 - 50],
+                opacity: [0, 0.5, 0]
+              }}
+              transition={{ 
+                duration: Math.random() * 10 + 10, 
+                repeat: Infinity,
+                delay: Math.random() * 10
+              }}
+              className="absolute w-1 h-1 bg-[#00d2ff] rounded-full blur-[1px]"
+            />
           ))}
         </div>
       </div>
 
-      {/* Notepad & Data Core Toggle Buttons */}
-      <div className="absolute top-8 right-8 flex flex-wrap justify-end gap-2 sm:gap-4 max-w-[calc(100vw-4rem)]">
-        <button 
-          onClick={() => setIsAutomationsOpen(true)}
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest relative"
+      {/* Main Bento Grid Layout */}
+      <div className="relative z-10 grid grid-cols-12 grid-rows-12 h-screen p-6 gap-6 max-w-[1920px] mx-auto">
+        
+        {/* Section 1: System Diagnostics (Top Left) */}
+        <motion.div 
+          initial={{ opacity: 0, x: -50 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="col-span-3 row-span-4 backdrop-blur-2xl bg-white/[0.02] border border-white/10 rounded-[40px] p-8 flex flex-col justify-between shadow-[0_0_50px_rgba(0,0,0,0.5)] group hover:border-[#00d2ff]/30 transition-all duration-500"
         >
-          <Activity size={14} />
-          <span>Automations</span>
-        </button>
-        <button 
-          onClick={() => setIsCreativeGalleryOpen(true)}
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-pink-500/30 text-pink-400 hover:bg-pink-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest relative"
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-[#00d2ff] animate-ping" />
+              <span className="text-[10px] font-mono uppercase tracking-[0.4em] text-white/40">Core Status</span>
+            </div>
+            <Activity size={14} className="text-[#00d2ff]/60" />
+          </div>
+
+          <div className="space-y-6">
+            <div className="flex items-center gap-5">
+              <div className="relative">
+                <div className="absolute inset-0 bg-[#00d2ff]/20 blur-xl rounded-full animate-pulse" />
+                <div className="relative w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                  <Cpu size={28} className="text-[#00d2ff]" />
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-bold uppercase tracking-[0.2em]">Neural Engine</div>
+                <div className="text-[10px] text-emerald-500 font-mono flex items-center gap-2">
+                  <Check size={10} />
+                  OPTIMIZED_V4.2
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                { label: 'Latency', value: '14ms', color: 'text-white' },
+                { label: 'Sync', value: '99.8%', color: 'text-emerald-500' },
+                { label: 'Uplink', value: 'Active', color: 'text-[#00d2ff]' },
+                { label: 'Threats', value: '0', color: 'text-white/40' },
+              ].map((stat, i) => (
+                <div key={i} className="p-4 rounded-2xl bg-white/[0.03] border border-white/5">
+                  <div className="text-[8px] text-white/30 uppercase tracking-widest mb-1">{stat.label}</div>
+                  <div className={`text-sm font-mono font-bold ${stat.color}`}>{stat.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-6 border-t border-white/5">
+            <div className="flex justify-between items-end">
+              <div>
+                <div className="text-[8px] text-white/20 uppercase tracking-widest mb-1">Power Level</div>
+                <div className="text-lg font-display tracking-tighter">98.4%</div>
+              </div>
+              <div className="flex gap-1 h-8 items-end">
+                {[...Array(8)].map((_, i) => (
+                  <motion.div 
+                    key={i}
+                    animate={{ height: [10, 20, 15, 25, 10] }}
+                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.1 }}
+                    className="w-1 bg-[#00d2ff]/20 rounded-full"
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Section 2: Global Navigation (Top Middle) */}
+        <motion.div 
+          initial={{ opacity: 0, y: -50 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="col-span-6 row-span-2 backdrop-blur-2xl bg-white/[0.02] border border-white/10 rounded-[40px] p-4 flex items-center justify-between px-10 shadow-[0_0_50px_rgba(0,0,0,0.5)]"
         >
-          <ImageIcon size={14} className="sm:w-4 sm:h-4" />
-          <span className="hidden xs:inline">Creatives</span>
-          <span className="xs:hidden">Art</span>
-          {generatedCreatives.length > 0 && (
-            <span className="bg-pink-500 text-black px-1.5 rounded-full text-[10px] font-bold">
-              {generatedCreatives.length}
-            </span>
-          )}
-          {isGeneratingCreative && (
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-pink-500"></span>
-            </span>
-          )}
-        </button>
-        <button 
-          onClick={() => setIsVideoGalleryOpen(true)}
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest relative"
+          <div className="flex items-center gap-3">
+            {[
+              { id: 'creatives', icon: ImageIcon, label: 'Creatives', color: 'hover:text-pink-500', action: () => setIsCreativeGalleryOpen(true) },
+              { id: 'videos', icon: Film, label: 'Veo 3.1', color: 'hover:text-indigo-500', action: () => setIsVideoGalleryOpen(true) },
+              { id: 'github', icon: Github, label: 'GitHub', color: 'hover:text-blue-500', action: () => { setIsGithubOpen(true); fetchGithubRepos(); } },
+              { id: 'home', icon: Home, label: 'Home', color: 'hover:text-orange-500', action: () => setIsHomePanelOpen(true) },
+            ].map((item) => (
+              <button 
+                key={item.id}
+                onClick={item.action}
+                className={`flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/5 border border-white/5 text-white/60 text-[10px] font-bold uppercase tracking-[0.2em] transition-all hover:bg-white hover:text-black hover:scale-105 ${item.color}`}
+              >
+                <item.icon size={16} />
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="text-right">
+            <div className="text-3xl font-display tracking-tighter text-white leading-none mb-1">{currentTime}</div>
+            <div className="text-[10px] font-mono text-white/30 uppercase tracking-[0.3em]">Malibu // Protocol 0</div>
+          </div>
+        </motion.div>
+
+        {/* Section 3: Identity & Auth (Top Right) */}
+        <motion.div 
+          initial={{ opacity: 0, x: 50 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="col-span-3 row-span-2 backdrop-blur-2xl bg-white/[0.02] border border-white/10 rounded-[40px] p-6 flex items-center gap-6 shadow-[0_0_50px_rgba(0,0,0,0.5)] group hover:border-[#00d2ff]/30 transition-all"
         >
-          <Film size={14} className="sm:w-4 sm:h-4" />
-          <span className="hidden xs:inline">Veo Videos</span>
-          <span className="xs:hidden">Veo</span>
-          {generatedVideos.length > 0 && (
-            <span className="bg-indigo-500 text-black px-1.5 rounded-full text-[10px] font-bold">
-              {generatedVideos.length}
-            </span>
-          )}
-          {isGeneratingVideo && (
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
-            </span>
-          )}
-        </button>
-        <button 
-          onClick={() => setIsLocalUplinkOpen(true)}
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest"
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-[#00d2ff] to-purple-600 blur-xl opacity-20 group-hover:opacity-40 transition-opacity" />
+            <div className="relative w-16 h-16 rounded-full border-2 border-[#00d2ff]/50 p-1">
+              <div className="w-full h-full rounded-full bg-gradient-to-br from-[#00d2ff] to-purple-600 flex items-center justify-center overflow-hidden">
+                <Image src="https://picsum.photos/seed/stark/200/200" alt="Profile" width={64} height={64} className="opacity-80 mix-blend-overlay" referrerPolicy="no-referrer" />
+              </div>
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#050505] rounded-full border border-white/10 flex items-center justify-center">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            </div>
+          </div>
+          <div>
+            <div className="text-sm font-bold uppercase tracking-[0.2em] text-white">Tony Stark</div>
+            <div className="text-[10px] font-mono text-white/30 uppercase tracking-widest">Administrator</div>
+          </div>
+        </motion.div>
+
+        {/* Section 4: Arc Reactor & Jarvis Face (Center) */}
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="col-span-6 row-span-8 relative flex items-center justify-center"
         >
-          <Link size={14} className="sm:w-4 sm:h-4" />
-          <span className="hidden xs:inline">Local Uplink</span>
-          <span className="xs:hidden">Link</span>
-        </button>
-        <button 
-          onClick={() => setIsHomePanelOpen(true)}
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest"
+          {/* Arc Reactor Rings */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <motion.div 
+              animate={{ rotate: 360 }}
+              transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
+              className="w-[600px] h-[600px] rounded-full border border-white/[0.03] border-dashed"
+            />
+            <motion.div 
+              animate={{ rotate: -360 }}
+              transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
+              className="w-[500px] h-[500px] rounded-full border border-white/[0.05]"
+            />
+            <motion.div 
+              animate={{ rotate: 360 }}
+              transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+              className="w-[400px] h-[400px] rounded-full border-2 border-[#00d2ff]/5 border-t-[#00d2ff]/20"
+            />
+            
+            {/* Pulsing Glow */}
+            <motion.div 
+              animate={{ scale: [1, 1.1, 1], opacity: [0.1, 0.2, 0.1] }}
+              transition={{ duration: 4, repeat: Infinity }}
+              className="absolute w-[300px] h-[300px] bg-[#00d2ff] rounded-full blur-[120px]"
+            />
+          </div>
+
+          {/* The Face */}
+          <div className="relative z-20 cursor-pointer group" onClick={toggleMic}>
+            <JarvisFace 
+              isListening={isListening} 
+              isPlaying={isSpeaking} 
+              status={status} 
+              audioLevel={audioLevel} 
+            />
+            
+            {/* Interactive HUD Elements around face */}
+            <AnimatePresence>
+              {isListening && (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.5 }}
+                  className="absolute -inset-20 border-2 border-[#00d2ff]/20 rounded-full border-dashed animate-[spin_10s_linear_infinite]"
+                />
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+
+        {/* Section 5: Neural Logs (Bottom Left) */}
+        <motion.div 
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="col-span-3 row-span-6 backdrop-blur-2xl bg-white/[0.02] border border-white/10 rounded-[40px] p-8 flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] group hover:border-[#00d2ff]/30 transition-all"
         >
-          <Home size={14} className="sm:w-4 sm:h-4" />
-          <span className="hidden xs:inline">Smart Home</span>
-          <span className="xs:hidden">Home</span>
-        </button>
-        <button 
-          onClick={() => {
-            setIsGithubOpen(true);
-            fetchGithubRepos();
-          }}
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest"
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <Terminal size={16} className="text-[#00d2ff]" />
+              <span className="text-[10px] font-mono uppercase tracking-[0.4em] text-white/40">Neural Logs</span>
+            </div>
+            <button onClick={() => setLogs(['[SYSTEM] Logs cleared.'])} className="text-[8px] font-mono text-white/20 hover:text-white transition-colors uppercase tracking-widest">Clear</button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-4 font-mono text-[10px] scrollbar-hide">
+            {logs.map((log, i) => (
+              <motion.div 
+                key={i}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex gap-4 group/log"
+              >
+                <span className="text-[#00d2ff]/40 flex-shrink-0">[{new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}]</span>
+                <span className="text-white/60 group-hover/log:text-white transition-colors leading-relaxed">{log}</span>
+              </motion.div>
+            ))}
+            <div ref={(el) => el?.scrollIntoView({ behavior: 'smooth' })} />
+          </div>
+        </motion.div>
+
+        {/* Section 6: System Metrics (Middle Right) */}
+        <motion.div 
+          initial={{ opacity: 0, x: 50 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="col-span-3 row-span-3 backdrop-blur-2xl bg-white/[0.02] border border-white/10 rounded-[40px] p-8 flex flex-col justify-between shadow-[0_0_50px_rgba(0,0,0,0.5)] group hover:border-[#00d2ff]/30 transition-all"
         >
-          <Github size={14} className="sm:w-4 sm:h-4" />
-          <span className="hidden xs:inline">GitHub</span>
-          <span className="xs:hidden">Git</span>
-        </button>
-        <button 
-          onClick={() => setIsDataCoreOpen(true)}
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest"
+          <div className="text-[10px] font-mono text-white/40 uppercase tracking-[0.4em]">Neural Link</div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-4">
+              <motion.div 
+                animate={{ scale: [1, 1.2, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className={`w-3 h-3 rounded-full ${status === 'ONLINE' ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-orange-500 shadow-[0_0_15px_#f59e0b]'}`} 
+              />
+              <div className="text-2xl font-display uppercase tracking-tighter text-white">{status}</div>
+            </div>
+            <div className="text-[10px] font-mono text-white/30 leading-relaxed uppercase">
+              Biometric sync stable. Neural pathways optimized. Encryption level: OMEGA.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {[...Array(12)].map((_, i) => (
+              <motion.div 
+                key={i}
+                animate={{ opacity: [0.2, 1, 0.2] }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.1 }}
+                className="flex-1 h-1 bg-[#00d2ff]/40 rounded-full"
+              />
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Section 7: Core Controls (Bottom Right) */}
+        <motion.div 
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="col-span-3 row-span-5 backdrop-blur-2xl bg-white/[0.02] border border-white/10 rounded-[40px] p-8 flex flex-col justify-between shadow-[0_0_50px_rgba(0,0,0,0.5)] group hover:border-[#00d2ff]/30 transition-all"
         >
-          <Database size={14} className="sm:w-4 sm:h-4" />
-          <span className="hidden xs:inline">Data Core</span>
-          <span className="xs:hidden">Data</span>
-          {(dataCoreText || uploadedFiles.length > 0) && (
-            <span className="bg-emerald-500 text-black px-1.5 rounded-full text-[10px] font-bold">
-              !
-            </span>
-          )}
-        </button>
-        <button 
-          onClick={() => setIsNotepadOpen(true)}
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-[#00d2ff]/30 text-[#00d2ff] hover:bg-[#00d2ff]/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest"
-        >
-          <FileText size={14} className="sm:w-4 sm:h-4" />
-          <span className="hidden xs:inline">Notepad</span>
-          <span className="xs:hidden">Notes</span>
-          {notes.length > 0 && (
-            <span className="bg-[#00d2ff] text-black px-1.5 rounded-full text-[10px] font-bold">
-              {notes.length}
-            </span>
-          )}
-        </button>
+          <div className="text-[10px] font-mono text-white/40 uppercase tracking-[0.4em] mb-6">Core Protocols</div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { id: 'mic', icon: isListening ? Mic : MicOff, label: isListening ? 'Active' : 'Muted', active: isListening, action: toggleMic, color: 'text-[#00d2ff]' },
+              { id: 'audio', icon: isMuted ? VolumeX : Volume2, label: isMuted ? 'Silent' : 'Audio', active: !isMuted, action: () => setIsMuted(!isMuted), color: 'text-rose-500' },
+              { id: 'screen', icon: isScreenSharing ? Monitor : MonitorOff, label: isScreenSharing ? 'Sharing' : 'Screen', active: isScreenSharing, action: toggleScreenShare, color: 'text-indigo-500' },
+              { id: 'reset', icon: RefreshCw, label: 'Reset', active: false, action: startSession, color: 'text-emerald-500' },
+            ].map((btn) => (
+              <button 
+                key={btn.id}
+                onClick={btn.action}
+                className={`group/btn relative flex flex-col items-center justify-center p-6 rounded-[32px] border transition-all duration-300 ${btn.active ? 'bg-white/10 border-white/20' : 'bg-white/[0.02] border-white/5 hover:bg-white/5'}`}
+              >
+                <btn.icon size={24} className={`${btn.active ? btn.color : 'text-white/40'} group-hover/btn:scale-110 transition-transform`} />
+                <span className="text-[9px] uppercase font-bold tracking-widest mt-3 text-white/40 group-hover/btn:text-white">{btn.label}</span>
+                {btn.active && (
+                  <motion.div 
+                    layoutId="active-glow"
+                    className="absolute inset-0 rounded-[32px] border-2 border-[#00d2ff]/30 pointer-events-none"
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-6 flex gap-2">
+            <button 
+              onClick={() => setIsDataCoreOpen(true)}
+              className="flex-1 py-4 rounded-2xl bg-white text-black font-bold text-[10px] uppercase tracking-[0.2em] hover:bg-[#00d2ff] transition-all"
+            >
+              Data Core
+            </button>
+            <button 
+              onClick={() => setIsNotepadOpen(true)}
+              className="px-6 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-all"
+            >
+              <FileText size={18} />
+            </button>
+          </div>
+        </motion.div>
+
       </div>
 
       {/* Media Player Panel */}
@@ -2148,116 +2369,65 @@ if __name__ == "__main__":
       {/* Notepad Panel */}
       <AnimatePresence>
         {isNotepadOpen && (
-          <motion.div
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="absolute top-0 right-0 w-full sm:w-96 h-full bg-black/80 backdrop-blur-2xl border-l border-[#00d2ff]/20 z-50 flex flex-col"
+          <motion.div 
+            initial={{ opacity: 0, x: 100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 100 }}
+            className="fixed top-0 right-0 h-full w-[400px] z-[100] p-6"
           >
-            <div className="p-6 border-b border-[#00d2ff]/20 flex items-center justify-between">
-              <div className="flex items-center gap-3 text-[#00d2ff]">
-                <Shield size={20} className="animate-pulse" />
-                <h2 className="font-display text-lg tracking-widest uppercase">Encrypted Notes</h2>
-              </div>
-              <button 
-                onClick={() => setIsNotepadOpen(false)}
-                className="text-[#00d2ff]/60 hover:text-[#00d2ff] transition-colors"
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
-              {notes.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-[#00d2ff]/30 text-center space-y-4">
-                  <Cpu size={48} className="opacity-20" />
-                  <p className="font-mono text-xs uppercase tracking-widest">No data captured yet, Sir.</p>
+            <div className="h-full bg-[#0a0a0a] border border-white/10 rounded-[40px] flex flex-col shadow-2xl overflow-hidden">
+              <div className="p-8 border-b border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <FileText size={20} className="text-[#00d2ff]" />
+                  <span className="text-sm font-bold uppercase tracking-widest">Encrypted Notes</span>
                 </div>
-              ) : (
-                notes.map((note) => (
-                  <motion.div
-                    key={note.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="group relative p-4 rounded-xl bg-[#00d2ff]/5 border border-[#00d2ff]/10 hover:border-[#00d2ff]/30 transition-all"
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-[10px] font-mono text-[#00d2ff]/40 uppercase">{note.timestamp}</span>
-                      <button 
-                        onClick={() => copyToClipboard(note.text, note.id)}
-                        className="text-[#00d2ff]/60 hover:text-[#00d2ff] transition-colors"
-                      >
-                        {copiedId === note.id ? <Check size={14} /> : <Copy size={14} />}
-                      </button>
-                    </div>
-                    <pre className="font-mono text-xs text-[#00d2ff] whitespace-pre-wrap break-words leading-relaxed">
-                      {note.text}
-                    </pre>
-                  </motion.div>
-                ))
-              )}
-            </div>
-
-            <div className="p-6 border-t border-[#00d2ff]/20">
-              <button 
-                onClick={() => setNotes([])}
-                className="w-full py-3 rounded-lg border border-red-500/30 text-red-500/60 hover:bg-red-500/10 hover:text-red-500 transition-all font-mono text-[10px] uppercase tracking-[0.2em]"
-              >
-                Purge All Records
-              </button>
+                <button onClick={() => setIsNotepadOpen(false)} className="text-white/40 hover:text-white transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-8 space-y-4 scrollbar-hide">
+                {notes.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center opacity-20">
+                    <FileText size={48} className="mb-4" />
+                    <div className="text-xs uppercase tracking-widest">No records found</div>
+                  </div>
+                ) : (
+                  notes.map((note, i) => (
+                    <motion.div 
+                      key={i}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition-all group"
+                    >
+                      <div className="text-[10px] text-white/40 font-mono mb-2 flex justify-between">
+                        <span>RECORD #{i + 1024}</span>
+                        <button onClick={() => copyToClipboard(note.text, note.id)} className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Copy size={12} />
+                        </button>
+                      </div>
+                      <div className="text-xs leading-relaxed text-white/80">{note.text}</div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+              <div className="p-8 border-t border-white/10">
+                <button 
+                  onClick={() => setNotes([])}
+                  className="w-full py-4 rounded-2xl bg-rose-500/10 text-rose-500 border border-rose-500/20 hover:bg-rose-500/20 transition-all text-[10px] font-bold uppercase tracking-widest"
+                >
+                  Purge All Records
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Controls */}
-      <div className="absolute bottom-8 right-8 flex gap-4 z-50">
-        <button 
-          onClick={toggleScreenShare}
-          className={`p-4 rounded-full border transition-all duration-500 ${
-            isScreenSharing 
-              ? 'bg-amber-500 border-amber-500 text-black shadow-[0_0_30px_rgba(245,158,11,0.5)]' 
-              : 'border-[#00d2ff]/30 text-[#00d2ff] hover:bg-[#00d2ff]/10'
-          }`}
-          title={isScreenSharing ? "Stop Screen Share" : "Start Screen Share"}
-        >
-          {isScreenSharing ? <MonitorOff size={24} /> : <Monitor size={24} />}
-        </button>
-        <button 
-          onClick={() => setIsMuted(!isMuted)}
-          className="p-4 rounded-full border border-[#00d2ff]/30 hover:bg-[#00d2ff]/10 transition-colors text-[#00d2ff]"
-        >
-          {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-        </button>
-        <button 
-          onClick={startSession}
-          className={`p-4 rounded-full border transition-all duration-500 ${
-            status === 'ERROR' || status === 'OFFLINE'
-              ? 'bg-red-500 border-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]'
-              : 'border-[#00d2ff]/30 text-[#00d2ff] hover:bg-[#00d2ff]/10'
-          }`}
-          title="Reset Neural Link"
-        >
-          <RefreshCw size={24} className={status === 'CONNECTING...' ? 'animate-spin' : ''} />
-        </button>
-        <button 
-          onClick={toggleMic}
-          className={`p-4 rounded-full border transition-all duration-500 ${
-            isListening 
-              ? 'bg-[#00d2ff] border-[#00d2ff] text-black shadow-[0_0_30px_rgba(0,210,255,0.5)]' 
-              : 'border-[#00d2ff]/30 text-[#00d2ff] hover:bg-[#00d2ff]/10'
-          }`}
-        >
-          {isListening ? <Mic size={24} /> : <MicOff size={24} />}
-        </button>
-      </div>
-
       {/* Corner Accents */}
-      <div className="absolute top-0 left-0 w-32 h-32 border-t-2 border-l-2 border-[#00d2ff]/20 rounded-tl-3xl m-4 pointer-events-none" />
-      <div className="absolute top-0 right-0 w-32 h-32 border-t-2 border-r-2 border-[#00d2ff]/20 rounded-tr-3xl m-4 pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-32 h-32 border-b-2 border-l-2 border-[#00d2ff]/20 rounded-bl-3xl m-4 pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-32 h-32 border-b-2 border-r-2 border-[#00d2ff]/20 rounded-br-3xl m-4 pointer-events-none" />
+      <div className="absolute top-0 left-0 w-32 h-32 border-t-2 border-l-2 border-white/10 rounded-tl-[40px] m-6 pointer-events-none" />
+      <div className="absolute top-0 right-0 w-32 h-32 border-t-2 border-r-2 border-white/10 rounded-tr-[40px] m-6 pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-32 h-32 border-b-2 border-l-2 border-white/10 rounded-bl-[40px] m-6 pointer-events-none" />
+      <div className="absolute bottom-0 right-0 w-32 h-32 border-b-2 border-r-2 border-white/10 rounded-br-[40px] m-6 pointer-events-none" />
     </div>
   );
 }

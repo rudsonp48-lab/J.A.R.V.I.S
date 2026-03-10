@@ -1,307 +1,330 @@
 'use client';
 
-import React, { useRef, useEffect } from 'react';
-import * as THREE from 'three';
+import React, { useEffect, useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface JarvisFaceProps {
-  audioLevel: number;
   status: string;
+  isPlaying: boolean;
+  isListening: boolean;
+  audioLevel?: number;
 }
 
-// Global flag to track WebGL failure across re-renders
-let webglFailedGlobally = false;
-
-export default function JarvisFace({ audioLevel, status }: JarvisFaceProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const pointsRef = useRef<THREE.Points | null>(null);
-  const frameRef = useRef<number>(0);
-  const canvas2DRef = useRef<HTMLCanvasElement | null>(null);
-  const audioLevelRef = useRef(audioLevel);
-
+export const JarvisFace: React.FC<JarvisFaceProps> = ({ status, isPlaying, isListening, audioLevel = 0 }) => {
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [blink, setBlink] = useState(false);
+  const [isSurprised, setIsSurprised] = useState(false);
+  
   useEffect(() => {
-    audioLevelRef.current = audioLevel;
-  }, [audioLevel]);
-
-  // Grid dimensions
-  const GRID_SIZE = 80;
-  const PARTICLE_COUNT = GRID_SIZE * GRID_SIZE;
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const width = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight;
-
-    const isWebGLAvailable = () => {
-      if (typeof window === 'undefined') return false;
-      if (webglFailedGlobally) return false;
-      
-      // Check if we've previously failed on this device
-      if (localStorage.getItem('jarvis_webgl_disabled') === 'true') {
-        return false;
-      }
-
-      try {
-        const canvas = document.createElement('canvas');
-        // Use a very minimal check first
-        const gl = canvas.getContext('webgl', { failIfMajorPerformanceCaveat: true }) || 
-                   canvas.getContext('experimental-webgl', { failIfMajorPerformanceCaveat: true });
-        
-        if (!gl) {
-          localStorage.setItem('jarvis_webgl_disabled', 'true');
-          return false;
-        }
-        return true;
-      } catch (e) {
-        localStorage.setItem('jarvis_webgl_disabled', 'true');
-        return false;
-      }
+    const handleMouseMove = (e: MouseEvent) => {
+      const x = (e.clientX / window.innerWidth - 0.5) * 20;
+      const y = (e.clientY / window.innerHeight - 0.5) * 20;
+      setMousePos({ x, y });
     };
 
-    // --- WebGL Initialization ---
-    let renderer: THREE.WebGLRenderer | null = null;
-    if (isWebGLAvailable()) {
-      try {
-        renderer = new THREE.WebGLRenderer({ 
-          alpha: true, 
-          antialias: false, 
-          powerPreference: "high-performance",
-          failIfMajorPerformanceCaveat: true
-        });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.setSize(width, height);
-        containerRef.current.appendChild(renderer.domElement);
-        rendererRef.current = renderer;
-
-        // Initialize Scene
-        const scene = new THREE.Scene();
-        sceneRef.current = scene;
-
-        // Initialize Camera
-        const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-        camera.position.z = 100;
-        cameraRef.current = camera;
-
-        // Create Particle Grid
-        const geometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(PARTICLE_COUNT * 3);
-        const colors = new Float32Array(PARTICLE_COUNT * 3);
-        const sizes = new Float32Array(PARTICLE_COUNT);
-
-        const spacing = 1.5;
-        const offset = (GRID_SIZE * spacing) / 2;
-
-        for (let i = 0; i < GRID_SIZE; i++) {
-          for (let j = 0; j < GRID_SIZE; j++) {
-            const index = (i * GRID_SIZE + j) * 3;
-            positions[index] = i * spacing - offset;
-            positions[index + 1] = j * spacing - offset;
-            positions[index + 2] = 0;
-
-            colors[index] = 0;
-            colors[index + 1] = 0.82;
-            colors[index + 2] = 1;
-
-            sizes[i * GRID_SIZE + j] = 1.0;
-          }
-        }
-
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-        const material = new THREE.PointsMaterial({
-          size: 1.5,
-          vertexColors: true,
-          transparent: true,
-          opacity: 0.8,
-          blending: THREE.AdditiveBlending,
-          sizeAttenuation: true,
-        });
-
-        const points = new THREE.Points(geometry, material);
-        scene.add(points);
-        pointsRef.current = points;
-
-        const animate = () => {
-          frameRef.current = requestAnimationFrame(animate);
-          
-          if (!pointsRef.current || !rendererRef.current || !sceneRef.current || !cameraRef.current) return;
-
-          const time = Date.now() * 0.001;
-          const posAttr = pointsRef.current.geometry.getAttribute('position') as THREE.BufferAttribute;
-          const sizeAttr = pointsRef.current.geometry.getAttribute('size') as THREE.BufferAttribute;
-          const colorAttr = pointsRef.current.geometry.getAttribute('color') as THREE.BufferAttribute;
-
-          const isOnline = status === 'ONLINE' || status === 'SPEAKING';
-          const isConnecting = status === 'CONNECTING...';
-          const isError = status === 'ERROR';
-
-          for (let i = 0; i < GRID_SIZE; i++) {
-            for (let j = 0; j < GRID_SIZE; j++) {
-              const x = i * spacing - offset;
-              const y = j * spacing - offset;
-
-              const distFromCenter = Math.sqrt(x * x + (y * 1.2) * (y * 1.2));
-              const faceRadius = 35;
-              let z = 0;
-
-              if (distFromCenter < faceRadius) {
-                z = Math.sqrt(faceRadius * faceRadius - distFromCenter * distFromCenter) * 0.8;
-                
-                const eyeY = 15;
-                const eyeX = 12;
-                const eyeDistL = Math.sqrt((x + eyeX) ** 2 + (y - eyeY) ** 2);
-                const eyeDistR = Math.sqrt((x - eyeX) ** 2 + (y - eyeY) ** 2);
-                
-                if (eyeDistL < 8 || eyeDistR < 8) z -= 5;
-
-                const noseWidth = 4;
-                if (Math.abs(x) < noseWidth && y < 10 && y > -10) z += 3;
-
-                const mouthY = -15;
-                const mouthDist = Math.sqrt(x * x + (y - mouthY) ** 2 * 2);
-                if (mouthDist < 10) {
-                  const mouthOpen = isOnline ? audioLevelRef.current * 15 : 0;
-                  z -= mouthOpen * (1 - mouthDist / 10);
-                }
-              }
-
-              const breathing = Math.sin(time * 1.5) * 1.5;
-              const tiltAngle = Math.sin(time * 0.4) * 0.15;
-              const nodAngle = Math.cos(time * 0.6) * 0.1;
-              const lookAngle = Math.sin(time * 0.2) * 0.2;
-
-              let rx = x * Math.cos(lookAngle) - z * Math.sin(lookAngle);
-              let rz = x * Math.sin(lookAngle) + z * Math.cos(lookAngle);
-              let ry = y * Math.cos(nodAngle) - rz * Math.sin(nodAngle);
-              rz = y * Math.sin(nodAngle) + rz * Math.cos(nodAngle);
-
-              const finalX = rx * Math.cos(tiltAngle) - ry * Math.sin(tiltAngle);
-              const finalY = rx * Math.sin(tiltAngle) + ry * Math.cos(tiltAngle);
-
-              posAttr.setXYZ(i * GRID_SIZE + j, finalX, finalY, rz + breathing);
-
-              let r = 0, g = 0.82, b = 1;
-              if (isError) { r = 1; g = 0.2; b = 0.2; }
-              else if (isConnecting) { r = 1; g = 0.8; b = 0; }
-
-              const pulse = isOnline ? audioLevelRef.current * 0.5 : 0;
-              colorAttr.setXYZ(i * GRID_SIZE + j, r + pulse, g + pulse, b + pulse);
-              sizeAttr.setX(i * GRID_SIZE + j, 1.0 + pulse * 2);
-            }
-          }
-
-          posAttr.needsUpdate = true;
-          sizeAttr.needsUpdate = true;
-          colorAttr.needsUpdate = true;
-
-          pointsRef.current.rotation.y = Math.sin(time * 0.2) * 0.1;
-          pointsRef.current.rotation.x = Math.cos(time * 0.1) * 0.05;
-
-          rendererRef.current.render(sceneRef.current, cameraRef.current);
-        };
-
-        animate();
-      } catch (e) {
-        console.warn("WebGL initialization failed, using Canvas 2D fallback", e);
-        webglFailedGlobally = true;
-        localStorage.setItem('jarvis_webgl_disabled', 'true');
-        setupCanvas2DFallback(width, height);
-      }
-    } else {
-      if (!webglFailedGlobally) {
-        console.warn("WebGL not available or performance caveat detected, using Canvas 2D fallback");
-      }
-      setupCanvas2DFallback(width, height);
-    }
-
-    function setupCanvas2DFallback(w: number, h: number) {
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      containerRef.current?.appendChild(canvas);
-      canvas2DRef.current = canvas;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const FALLBACK_GRID = 40; // Smaller grid for 2D performance
-      const spacing = w / FALLBACK_GRID;
-
-      const animate2D = () => {
-        frameRef.current = requestAnimationFrame(animate2D);
-        ctx.clearRect(0, 0, w, h);
-        
-        const time = Date.now() * 0.001;
-        const isOnline = status === 'ONLINE' || status === 'SPEAKING';
-        const isError = status === 'ERROR';
-        const isConnecting = status === 'CONNECTING...';
-
-        ctx.fillStyle = isError ? '#ff3333' : isConnecting ? '#ffcc00' : '#00d2ff';
-        const pulse = isOnline ? audioLevelRef.current * 10 : 0;
-
-        for (let i = 0; i < FALLBACK_GRID; i++) {
-          for (let j = 0; j < FALLBACK_GRID; j++) {
-            const x = i * spacing;
-            const y = j * spacing;
-            
-            const dx = x - w / 2;
-            const dy = y - h / 2;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            
-            if (dist < w / 3) {
-              const wave = Math.sin(dist * 0.05 - time * 5) * 2;
-              const size = (1 + Math.sin(time + dist * 0.1)) * 1 + pulse;
-              
-              ctx.globalAlpha = 0.3 + Math.sin(time + dist * 0.05) * 0.2;
-              ctx.beginPath();
-              ctx.arc(x + wave, y + wave, size, 0, Math.PI * 2);
-              ctx.fill();
-            }
-          }
-        }
-      };
-      animate2D();
-    }
-
-    const handleResize = () => {
-      if (!containerRef.current) return;
-      const w = containerRef.current.clientWidth;
-      const h = containerRef.current.clientHeight;
-      if (rendererRef.current && cameraRef.current) {
-        rendererRef.current.setSize(w, h);
-        cameraRef.current.aspect = w / h;
-        cameraRef.current.updateProjectionMatrix();
-      }
-      if (canvas2DRef.current) {
-        canvas2DRef.current.width = w;
-        canvas2DRef.current.height = h;
-      }
+    const handleMouseDown = () => {
+      setBlink(true);
+      setIsSurprised(true);
+      setTimeout(() => {
+        setBlink(false);
+        setIsSurprised(false);
+      }, 500);
     };
 
-    const container = containerRef.current;
-    window.addEventListener('resize', handleResize);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mousedown', handleMouseDown);
+    
+    const blinkInterval = setInterval(() => {
+      setBlink(true);
+      setTimeout(() => setBlink(false), 150);
+    }, 4000);
 
     return () => {
-      cancelAnimationFrame(frameRef.current);
-      window.removeEventListener('resize', handleResize);
-      if (container) {
-        if (rendererRef.current) container.removeChild(rendererRef.current.domElement);
-        if (canvas2DRef.current) container.removeChild(canvas2DRef.current);
-      }
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mousedown', handleMouseDown);
+      clearInterval(blinkInterval);
     };
-  }, [status, PARTICLE_COUNT]);
+  }, []);
+
+  // Expression logic
+  const getExpression = () => {
+    if (isSurprised) return 'surprised';
+    if (status === 'ERROR') return 'worried';
+    if (status === 'CONNECTING...') return 'thinking';
+    if (status === 'ONLINE' && !isListening && !isPlaying) return 'happy';
+    if (isListening) return 'attentive';
+    if (isPlaying) return 'speaking';
+    return 'neutral';
+  };
+
+  const expression = getExpression();
+
+  // Dynamic color based on status
+  const getThemeColor = () => {
+    if (status === 'ERROR') return '#ff4444';
+    if (status === 'CONNECTING...') return '#f59e0b';
+    if (isListening) return '#10b981';
+    if (isPlaying) return '#6366f1';
+    return '#00d2ff';
+  };
+
+  const themeColor = getThemeColor();
+
+  const mouthBars = [
+    { height: [8, 24, 8], duration: 0.25 },
+    { height: [8, 32, 8], duration: 0.3 },
+    { height: [8, 18, 8], duration: 0.2 },
+    { height: [8, 40, 8], duration: 0.35 },
+    { height: [8, 28, 8], duration: 0.28 },
+    { height: [8, 35, 8], duration: 0.32 },
+    { height: [8, 22, 8], duration: 0.22 },
+    { height: [8, 38, 8], duration: 0.38 },
+    { height: [8, 26, 8], duration: 0.26 },
+  ];
 
   return (
-    <div 
-      ref={containerRef} 
-      className="w-full h-full relative"
-      style={{ filter: 'drop-shadow(0 0 15px rgba(0, 210, 255, 0.4))' }}
+    <motion.div 
+      animate={{ 
+        rotateX: -mousePos.y * 0.5,
+        rotateY: mousePos.x * 0.5,
+        y: [0, -5, 0],
+        x: expression === 'worried' ? [0, -2, 2, -1, 0] : 0,
+        filter: expression === 'worried' ? ['hue-rotate(0deg)', 'hue-rotate(90deg)', 'hue-rotate(0deg)'] : 'hue-rotate(0deg)',
+        opacity: isListening ? [0.8, 1, 0.9, 1, 0.8] : 1
+      }}
+      transition={{ 
+        y: { duration: 4, repeat: Infinity, ease: "easeInOut" },
+        x: { duration: 0.1, repeat: expression === 'worried' ? Infinity : 0 },
+        filter: { duration: 0.2, repeat: expression === 'worried' ? Infinity : 0 },
+        opacity: { duration: 0.5, repeat: isListening ? Infinity : 0 }
+      }}
+      className="relative w-64 h-64 flex items-center justify-center pointer-events-none"
+      style={{ perspective: 1000 }}
     >
-      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[length:100%_2px,3px_100%] z-10 opacity-30"></div>
-    </div>
+      {/* Face Glow Background */}
+      <motion.div 
+        animate={{ 
+          scale: isSurprised ? [1, 1.5, 1] : (isPlaying ? [1, 1.1 + audioLevel, 1] : 1),
+          opacity: isSurprised ? [0.4, 0.8, 0.4] : (isListening ? [0.4, 0.7, 0.4] : 0.3),
+          backgroundColor: themeColor
+        }}
+        transition={{ duration: isSurprised ? 0.5 : 2, repeat: isSurprised ? 0 : Infinity }}
+        className="absolute inset-0 rounded-full blur-[80px]"
+      />
+
+      {/* Organic Fluid Core */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <motion.div
+          animate={{
+            scale: [1, 1.05, 0.95, 1],
+            rotate: [0, 90, 180, 270, 360],
+            borderRadius: ["40% 60% 70% 30% / 40% 50% 60% 50%", "60% 40% 30% 70% / 50% 60% 40% 60%", "40% 60% 70% 30% / 40% 50% 60% 50%"]
+          }}
+          transition={{
+            duration: 10,
+            repeat: Infinity,
+            ease: "linear"
+          }}
+          className="w-48 h-48 border border-white/10 backdrop-blur-sm bg-white/5"
+        />
+      </div>
+
+      {/* Cheek Glows */}
+      <div className="absolute inset-0 flex justify-between px-12 items-center opacity-10 pointer-events-none">
+        <motion.div 
+          animate={{ 
+            scale: isPlaying ? [1, 1.3, 1] : (expression === 'thinking' ? [1, 1.1, 1] : 1),
+            opacity: expression === 'worried' ? [0.1, 0.4, 0.1] : (expression === 'happy' ? 0.4 : 0.1),
+            backgroundColor: expression === 'happy' ? '#ff00d2' : (expression === 'worried' ? '#ff0000' : '#00d2ff')
+          }}
+          transition={{ 
+            scale: { duration: isPlaying ? 0.2 : 1, repeat: (isPlaying || expression === 'thinking') ? Infinity : 0 },
+            opacity: { duration: 0.1, repeat: expression === 'worried' ? Infinity : 0 }
+          }}
+          className="w-16 h-8 rounded-full blur-2xl"
+        />
+        <motion.div 
+          animate={{ 
+            scale: isPlaying ? [1, 1.3, 1] : (expression === 'thinking' ? [1, 1.1, 1] : 1),
+            opacity: expression === 'worried' ? [0.1, 0.4, 0.1] : (expression === 'happy' ? 0.4 : 0.1),
+            backgroundColor: expression === 'happy' ? '#ff00d2' : (expression === 'worried' ? '#ff0000' : '#00d2ff')
+          }}
+          transition={{ 
+            scale: { duration: isPlaying ? 0.2 : 1, repeat: (isPlaying || expression === 'thinking') ? Infinity : 0 },
+            opacity: { duration: 0.1, repeat: expression === 'worried' ? Infinity : 0 }
+          }}
+          className="w-16 h-8 rounded-full blur-2xl"
+        />
+      </div>
+
+      {/* Eyes Container */}
+      <div className="flex gap-12 mb-8 relative">
+        {[0, 1].map((i) => (
+          <div key={i} className="relative w-12 h-12">
+            {/* Eyebrow */}
+            <motion.div 
+              animate={{ 
+                y: expression === 'thinking' ? [-5, -8, -5] : (expression === 'worried' ? [-2, -4, -2] : (expression === 'surprised' ? -12 : 0)),
+                rotate: expression === 'thinking' ? (i === 0 ? 10 : -10) : (expression === 'worried' ? (i === 0 ? -15 : 15) : 0),
+                opacity: (expression === 'thinking' || expression === 'worried') ? [0.4, 1, 0.4] : 0.4,
+                backgroundColor: themeColor
+              }}
+              transition={{ 
+                y: { duration: expression === 'worried' ? 0.1 : 1, repeat: Infinity },
+                opacity: { duration: expression === 'worried' ? 0.1 : 1, repeat: Infinity }
+              }}
+              className="absolute -top-4 left-0 w-full h-1 rounded-full"
+            />
+
+            {/* Eye Socket */}
+            <motion.div 
+              animate={{ 
+                borderColor: isListening ? themeColor : (expression === 'thinking' ? themeColor : (expression === 'worried' ? '#ff0000' : 'rgba(255,255,255,0.1)')),
+                boxShadow: isListening ? `0 0 20px ${themeColor}44` : (expression === 'thinking' ? `0 0 10px ${themeColor}22` : (expression === 'worried' ? '0 0 15px rgba(255,0,0,0.4)' : 'none')),
+                scale: expression === 'surprised' ? 1.2 : 1,
+                x: expression === 'worried' ? [0, -1, 1, 0] : 0
+              }}
+              transition={{ x: { duration: 0.1, repeat: expression === 'worried' ? Infinity : 0 } }}
+              className="absolute inset-0 rounded-full border bg-white/5 backdrop-blur-md overflow-hidden"
+            >
+              {/* Pupil / Iris */}
+              <motion.div 
+                animate={{ 
+                  x: mousePos.x, 
+                  y: mousePos.y,
+                  scale: blink ? 0.1 : (1 + audioLevel * 0.5),
+                  opacity: blink ? 0 : 1,
+                  backgroundColor: themeColor,
+                  boxShadow: `0 0 15px ${themeColor}`
+                }}
+                transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                className="absolute inset-2 rounded-full"
+              >
+                <div className="absolute inset-1 rounded-full bg-white/40 blur-[1px]" />
+                <div className="absolute top-1 left-1 w-2 h-2 rounded-full bg-white/60" />
+              </motion.div>
+            </motion.div>
+            
+            {/* Eye Lid / Expression Overlay */}
+            <motion.div 
+              animate={{ 
+                height: expression === 'thinking' ? '40%' : expression === 'worried' ? '60%' : '0%' 
+              }}
+              className="absolute top-0 left-0 w-full bg-[#050505] z-10"
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Nose */}
+      <motion.div 
+        animate={{ 
+          y: mousePos.y * 0.2,
+          x: mousePos.x * 0.2,
+          opacity: isListening ? [0.2, 0.5, 0.2] : 0.2,
+          backgroundColor: themeColor
+        }}
+        transition={{ opacity: { duration: 1, repeat: Infinity } }}
+        className="absolute top-[45%] w-1 h-4 rounded-full blur-[1px]"
+      />
+
+      {/* Mouth / Audio Visualizer */}
+      <div className="absolute bottom-16 flex items-center justify-center gap-1 h-8">
+        {isPlaying || (isListening && audioLevel > 0.01) ? (
+          // Animated Mouth when speaking or listening with audio
+          [...Array(9)].map((_, i) => {
+            const baseHeight = 8;
+            const boost = audioLevel * 100;
+            const randomBoost = Math.sin(i * 1.5) * boost * 0.3;
+            const finalHeight = Math.max(baseHeight, baseHeight + boost + randomBoost);
+            
+            return (
+              <motion.div
+                key={i}
+                animate={{ 
+                  height: finalHeight,
+                  opacity: [0.4, 1, 0.4],
+                  backgroundColor: themeColor
+                }}
+                transition={{ 
+                  duration: 0.1,
+                  repeat: 0
+                }}
+                className="w-1.5 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.3)]"
+              />
+            );
+          })
+        ) : (
+          // Static Mouth Line
+          <motion.div 
+            animate={{ 
+              width: isListening ? 40 : (expression === 'happy' ? 30 : (expression === 'surprised' ? 15 : 20)),
+              height: isListening ? 4 : (expression === 'happy' ? 6 : (expression === 'surprised' ? 15 : 2)),
+              borderRadius: isListening ? 10 : (expression === 'happy' ? '0 0 10px 10px' : (expression === 'surprised' ? '50%' : 2)),
+              y: expression === 'happy' ? 2 : (expression === 'surprised' ? 5 : 0),
+              opacity: (expression === 'thinking' || expression === 'worried') ? [0.4, 1, 0.4] : 0.6,
+              x: expression === 'worried' ? [0, -2, 2, 0] : 0,
+              backgroundColor: themeColor
+            }}
+            transition={{ 
+              opacity: { duration: expression === 'worried' ? 0.1 : 1, repeat: (expression === 'thinking' || expression === 'worried') ? Infinity : 0 },
+              x: { duration: 0.1, repeat: expression === 'worried' ? Infinity : 0 }
+            }}
+            className="shadow-[0_0_5px_rgba(255,255,255,0.3)]"
+          />
+        )}
+      </div>
+
+      {/* Chin */}
+      <motion.div 
+        animate={{ 
+          opacity: isListening ? 0.4 : (isPlaying ? 0.8 : 0.1),
+          y: isPlaying ? [2, 4, 2] : 0,
+          scaleX: isPlaying ? [1, 1.2, 1] : 1,
+          backgroundColor: themeColor
+        }}
+        transition={{ 
+          y: { duration: 0.2, repeat: Infinity },
+          scaleX: { duration: 0.2, repeat: Infinity }
+        }}
+        className="absolute bottom-10 w-12 h-0.5 rounded-full blur-[0.5px] shadow-[0_0_10px_rgba(255,255,255,0.3)]"
+      />
+
+      {/* Holographic Scan Lines */}
+      <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none opacity-20">
+        <motion.div 
+          animate={{ 
+            y: ['-100%', '100%'],
+            opacity: expression === 'surprised' ? [0.2, 1, 0.2] : 0.2
+          }}
+          transition={{ 
+            y: { duration: expression === 'surprised' ? 0.5 : 3, repeat: Infinity, ease: "linear" },
+            opacity: { duration: 0.1, repeat: expression === 'surprised' ? Infinity : 0 }
+          }}
+          className="w-full h-1 bg-gradient-to-r from-transparent via-[#00d2ff] to-transparent"
+        />
+      </div>
+
+      {/* Status Ring */}
+      <svg className="absolute inset-0 w-full h-full -rotate-90">
+        <motion.circle
+          cx="128"
+          cy="128"
+          r="120"
+          fill="none"
+          stroke={themeColor}
+          strokeWidth={expression === 'surprised' ? 2 : 0.5}
+          strokeDasharray="1 10"
+          animate={{ 
+            strokeDashoffset: [0, 100],
+            opacity: expression === 'surprised' ? [0.2, 0.8, 0.2] : 0.1
+          }}
+          transition={{ 
+            strokeDashoffset: { duration: expression === 'thinking' ? 2 : 20, repeat: Infinity, ease: "linear" },
+            opacity: { duration: 0.2, repeat: expression === 'surprised' ? Infinity : 0 }
+          }}
+        />
+      </svg>
+    </motion.div>
   );
-}
+};
