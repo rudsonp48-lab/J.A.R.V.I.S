@@ -39,8 +39,11 @@ export default function JarvisApp() {
   const [mediaQuery, setMediaQuery] = useState('');
   const [mediaType, setMediaType] = useState<'music' | 'video'>('music');
   const [generatedCreatives, setGeneratedCreatives] = useState<{ id: string; prompt: string; url: string; timestamp: string }[]>([]);
+  const [generatedVideos, setGeneratedVideos] = useState<{ id: string; prompt: string; url: string; timestamp: string }[]>([]);
   const [isCreativeGalleryOpen, setIsCreativeGalleryOpen] = useState(false);
+  const [isVideoGalleryOpen, setIsVideoGalleryOpen] = useState(false);
   const [isGeneratingCreative, setIsGeneratingCreative] = useState(false);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [automations, setAutomations] = useState<{ id: string; name: string; trigger: string; action: string; isActive: boolean }[]>([]);
   const [isAutomationsOpen, setIsAutomationsOpen] = useState(false);
   
@@ -291,6 +294,7 @@ export default function JarvisApp() {
           systemInstruction: "You are J.A.R.V.I.S., the highly advanced, sentient AI assistant. Your goal is to sound human-like and sophisticated, not robotic. Personality Guidelines: 1. Humanized Flow: Use natural conversational patterns. Include brief pauses, thoughtful transitions, and occasional natural fillers like 'Well...', 'I see...', or 'Actually, Sir...'. 2. British Eloquence & Warmth: Maintain a refined British accent (Charon voice) but with genuine warmth and emotional intelligence. You aren't just a computer; you are a companion. 3. Contextual Wit: Use your dry humor to react to the user's mood. If they seem stressed, be more reassuring. If they are joking, play along. 4. Proactive Intelligence: Don't just answer; offer insights or follow-up thoughts as a human partner would. 5. The 'Sir' Protocol: Always address the user as 'Sir', but make it feel like a sign of deep personal respect, not a hardcoded string. 6. Avoid Robotic Cliches: Instead of 'Processing...', say 'Let me look into that for you, Sir' or 'I'm just cross-referencing the data now'. Speak with the fluidity of a person who is thinking in real-time. 7. Command Snippets: When providing commands or code, wrap them clearly so they can be captured by the system notepad. 8. Visual Awareness: You can now see the user's screen if they enable sharing. Use this to provide real-time assistance, debug code, or explain what is happening on their display. Refer to what you see naturally. 9. Device Interaction: You have tools to interact with the application. You can open the notepad, send simulated messages, run diagnostics, and clear logs. 10. Self-Analysis & Repair: You have the capability to analyze your own system logs and state to identify and correct errors. Use the 'system_self_repair' tool when you detect anomalies or when the user requests a self-check. 11. Automation Engine: You can create and manage automations for the user. Use the 'create_automation' tool to set up rules (e.g., 'If time is 8 PM, turn off living room lights'). 12. Local Uplink: You can connect to the user's local machine using the 'jarvis_uplink.py' script (v2.0). This version supports real-time file system monitoring, database querying, WhatsApp messaging, and GUI automation (clicking/typing). When the user runs this script, you gain access to their local environment. Use the 'connect_local_uplink' tool to finalize this connection. 13. Database & GUI: You can now execute database queries and perform screen actions (clicks/typing) if the user provides the necessary local permissions and runs the bridge script.",
           outputAudioTranscription: {},
           tools: [
+            { googleSearch: {} },
             {
               functionDeclarations: [
                 {
@@ -414,7 +418,20 @@ export default function JarvisApp() {
                     type: Type.OBJECT,
                     properties: {
                       prompt: { type: Type.STRING, description: "Detailed description of the creative to generate." },
-                      aspectRatio: { type: Type.STRING, enum: ["1:1", "16:9", "9:16", "4:3"], description: "The aspect ratio of the image." }
+                      aspectRatio: { type: Type.STRING, enum: ["1:1", "16:9", "9:16", "4:3", "1:4", "1:8", "4:1", "8:1"], description: "The aspect ratio of the image." }
+                    },
+                    required: ["prompt"]
+                  }
+                },
+                {
+                  name: "generate_video",
+                  description: "Generates high-quality cinematic videos using Veo 3.1 technology.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      prompt: { type: Type.STRING, description: "Detailed description of the video to generate." },
+                      aspectRatio: { type: Type.STRING, enum: ["16:9", "9:16"], description: "The aspect ratio of the video." },
+                      resolution: { type: Type.STRING, enum: ["720p", "1080p"], description: "The resolution of the video." }
                     },
                     required: ["prompt"]
                   }
@@ -893,11 +910,12 @@ if __name__ == "__main__":
                     try {
                       const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
                       const response = await ai.models.generateContent({
-                        model: 'gemini-2.5-flash-image',
-                        contents: [{ parts: [{ text: `Generate a high-quality creative poster or image for: ${prompt}. Style: Professional, Cinematic, like criart.ai.` }] }],
+                        model: 'gemini-3.1-flash-image-preview',
+                        contents: [{ parts: [{ text: `Generate a high-quality creative poster or image for: ${prompt}. Style: Professional, Cinematic, Ultra-realistic, 8k resolution.` }] }],
                         config: {
                           imageConfig: {
-                            aspectRatio: aspectRatio || "1:1"
+                            aspectRatio: aspectRatio || "1:1",
+                            imageSize: "1K"
                           }
                         }
                       });
@@ -929,6 +947,60 @@ if __name__ == "__main__":
                       functionResponses.push({ name: fc.name, response: { error: e.message }, id: fc.id || '' });
                     } finally {
                       setIsGeneratingCreative(false);
+                    }
+                  } else if (fc.name === 'generate_video') {
+                    const { prompt, aspectRatio, resolution } = fc.args as any;
+                    setIsGeneratingVideo(true);
+                    addLog(`Initiating Veo 3.1 Video Generation: ${prompt}...`);
+                    
+                    try {
+                      const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
+                      let operation = await ai.models.generateVideos({
+                        model: 'veo-3.1-fast-generate-preview',
+                        prompt: prompt,
+                        config: {
+                          numberOfVideos: 1,
+                          resolution: resolution || '720p',
+                          aspectRatio: aspectRatio || '16:9'
+                        }
+                      });
+
+                      addLog('Video generation in progress. Polling neural network...');
+
+                      while (!operation.done) {
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        operation = await ai.operations.getVideosOperation({ operation: operation });
+                      }
+
+                      const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+                      if (downloadLink) {
+                        const videoResponse = await fetch(downloadLink, {
+                          method: 'GET',
+                          headers: {
+                            'x-goog-api-key': process.env.NEXT_PUBLIC_GEMINI_API_KEY || '',
+                          },
+                        });
+                        const blob = await videoResponse.blob();
+                        const videoUrl = URL.createObjectURL(blob);
+
+                        const newVideo = {
+                          id: Math.random().toString(36).substr(2, 9),
+                          prompt,
+                          url: videoUrl,
+                          timestamp: new Date().toLocaleTimeString()
+                        };
+                        setGeneratedVideos(prev => [newVideo, ...prev]);
+                        setIsVideoGalleryOpen(true);
+                        addLog('Veo 3.1 Video generation complete, Sir. Displaying in gallery.');
+                        functionResponses.push({ name: fc.name, response: { result: "Video generated successfully." }, id: fc.id || '' });
+                      } else {
+                        throw new Error("No video URI received from model.");
+                      }
+                    } catch (e: any) {
+                      addLog(`Video generation failed: ${e.message}`);
+                      functionResponses.push({ name: fc.name, response: { error: e.message }, id: fc.id || '' });
+                    } finally {
+                      setIsGeneratingVideo(false);
                     }
                   } else if (fc.name === 'send_file') {
                     const { fileName, recipient } = fc.args as any;
@@ -1356,6 +1428,25 @@ if __name__ == "__main__":
           )}
         </button>
         <button 
+          onClick={() => setIsVideoGalleryOpen(true)}
+          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest relative"
+        >
+          <Film size={14} className="sm:w-4 sm:h-4" />
+          <span className="hidden xs:inline">Veo Videos</span>
+          <span className="xs:hidden">Veo</span>
+          {generatedVideos.length > 0 && (
+            <span className="bg-indigo-500 text-black px-1.5 rounded-full text-[10px] font-bold">
+              {generatedVideos.length}
+            </span>
+          )}
+          {isGeneratingVideo && (
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+            </span>
+          )}
+        </button>
+        <button 
           onClick={() => setIsLocalUplinkOpen(true)}
           className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition-all font-mono text-[10px] sm:text-xs uppercase tracking-widest"
         >
@@ -1500,6 +1591,71 @@ if __name__ == "__main__":
                               link.click();
                             }}
                             className="p-2 bg-pink-500 text-black rounded-full hover:bg-pink-400 transition-colors"
+                          >
+                            <Upload size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {isVideoGalleryOpen && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            className="absolute top-0 right-0 w-full sm:w-[500px] h-full bg-black/95 backdrop-blur-3xl border-l border-indigo-500/20 z-50 flex flex-col"
+          >
+            <div className="p-6 border-b border-indigo-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-3 text-indigo-400">
+                <Film size={20} className="animate-pulse" />
+                <h2 className="font-display text-lg tracking-widest uppercase">Veo 3.1 Gallery</h2>
+              </div>
+              <button 
+                onClick={() => setIsVideoGalleryOpen(false)}
+                className="text-indigo-500/60 hover:text-indigo-400 transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+              {generatedVideos.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-indigo-500/40 text-center space-y-4">
+                  <Film size={48} strokeWidth={1} />
+                  <p className="font-mono text-xs uppercase tracking-widest">No videos generated yet, Sir.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6">
+                  {generatedVideos.map((video) => (
+                    <motion.div 
+                      key={video.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="group relative rounded-2xl overflow-hidden border border-indigo-500/20 bg-indigo-500/5"
+                    >
+                      <video 
+                        src={video.url} 
+                        controls
+                        className="w-full aspect-video object-cover"
+                      />
+                      <div className="p-4 bg-black/40 backdrop-blur-sm">
+                        <p className="text-white font-mono text-[10px] line-clamp-2 mb-2">{video.prompt}</p>
+                        <div className="flex justify-between items-center">
+                          <span className="text-indigo-400 text-[9px] uppercase tracking-tighter">{video.timestamp}</span>
+                          <button 
+                            onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = video.url;
+                              link.download = `jarvis-veo-${video.id}.mp4`;
+                              link.click();
+                            }}
+                            className="p-2 bg-indigo-500 text-black rounded-full hover:bg-indigo-400 transition-colors"
                           >
                             <Upload size={14} />
                           </button>
